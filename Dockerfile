@@ -1,13 +1,9 @@
-ARG NODE_VERSION="15.7-alpine3.10"
+FROM nginx:1.27-alpine
 
-FROM node:${NODE_VERSION}
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY . /daxigua
+WORKDIR /usr/share/nginx/html
 
-RUN npm config set registry https://registry.npm.taobao.org && \
-    npm i -g serve
-
-WORKDIR /daxigua
+COPY . .
 
 EXPOSE 5000
-ENTRYPOINT [ "serve" ]

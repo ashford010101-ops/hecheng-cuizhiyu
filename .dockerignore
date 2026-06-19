@@ -1,0 +1,13 @@
+.git
+.github
+.dockerignore
+.gitignore
+.idea
+.vercel
+DEPLOY.md
+Dockerfile
+cloudbaserc.json
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

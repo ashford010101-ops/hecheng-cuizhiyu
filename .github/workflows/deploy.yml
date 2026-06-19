@@ -1,0 +1,73 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: hecheng-cuizhiyu
+  CONTAINER_NAME: hecheng-cuizhiyu
+  APP_PORT: ${{ vars.APP_PORT || '5000' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t "$IMAGE_NAME:$GITHUB_SHA" .
+          docker save "$IMAGE_NAME:$GITHUB_SHA" | gzip > "$IMAGE_NAME-$GITHUB_SHA.tar.gz"
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_SSH_KEY"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload image
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          test -n "$DEPLOY_USER"
+
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+            "$IMAGE_NAME-$GITHUB_SHA.tar.gz" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/$IMAGE_NAME-$GITHUB_SHA.tar.gz"
+
+      - name: Restart container
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "IMAGE_NAME='$IMAGE_NAME' IMAGE_TAG='$GITHUB_SHA' CONTAINER_NAME='$CONTAINER_NAME' APP_PORT='$APP_PORT' bash -s" <<'EOF'
+          set -euo pipefail
+
+          ARCHIVE="/tmp/$IMAGE_NAME-$IMAGE_TAG.tar.gz"
+
+          docker load -i "$ARCHIVE"
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --restart unless-stopped \
+            -p "$APP_PORT:5000" \
+            "$IMAGE_NAME:$IMAGE_TAG"
+          rm -f "$ARCHIVE"
+          docker image prune -f >/dev/null
+          EOF
